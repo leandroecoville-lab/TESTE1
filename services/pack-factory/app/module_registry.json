@@ -1,0 +1,370 @@
+{
+  "schema_version": "1.0",
+  "description": "Registry declarativo de módulos. Planner, Validator, Merger e Sim consultam este arquivo. Para adicionar módulo novo: insira entrada aqui (zero código).",
+  "modules": {
+    "meetcore": {
+      "display_name": "MeetCore",
+      "aliases": [
+        "meetcore",
+        "meet-core",
+        "meet_core"
+      ],
+      "description": "Video conferencing + real-time events + post-call artifacts",
+      "ecosystem": "lai",
+      "required_docs": [
+        "docs/MEETCORE_SLICES.md",
+        "docs/PERFORMANCE_BUDGETS.md",
+        "docs/DATA_RETENTION_MATRIX.md"
+      ],
+      "slices": {
+        "ids": [
+          "PEC1.01",
+          "PEC1.02",
+          "PEC1.03",
+          "PEC1.04",
+          "PEC1.05"
+        ],
+        "note": "MeetCore-first slicing: iniciar pelo PEC1.01 (Signaling+Rooms+Tokens) e evoluir até PEC1.05.",
+        "template_file": "MEETCORE_SLICES.md"
+      },
+      "budgets": {
+        "streaming_p95_ms": 300,
+        "insights_p95_ms": 1000,
+        "transcript_p95_ms": 2000,
+        "template_file": "PERFORMANCE_BUDGETS.md"
+      },
+      "content_checks": [
+        {
+          "file": "docs/MEETCORE_SLICES.md",
+          "contains": "pec1.01",
+          "error": "missing_trace::meetcore_slices_PEC1_01_not_found"
+        },
+        {
+          "file": "docs/PERFORMANCE_BUDGETS.md",
+          "contains": "300ms",
+          "error": "missing_trace::meetcore_budget_streaming_300ms_not_found"
+        },
+        {
+          "file": "docs/DATA_RETENTION_MATRIX.md",
+          "contains_all": [
+            "culture",
+            "people",
+            "pipeline"
+          ],
+          "error": "missing_trace::retention_matrix_culture_people_not_found"
+        }
+      ],
+      "events": [
+        {
+          "type": "meetcore.call.started",
+          "source": "lai.meetcore",
+          "sample_data": {
+            "call_id": "call-demo",
+            "room_id": "room-demo",
+            "participants": [
+              {
+                "id": "lead-1",
+                "role": "lead"
+              },
+              {
+                "id": "seller-1",
+                "role": "seller"
+              }
+            ]
+          }
+        },
+        {
+          "type": "meetcore.transcript.partial",
+          "source": "lai.meetcore",
+          "sample_data": {
+            "call_id": "call-demo",
+            "seq": 1,
+            "text": "Olá, como posso ajudar?",
+            "confidence": 0.86
+          }
+        },
+        {
+          "type": "meetcore.call.ended",
+          "source": "lai.meetcore",
+          "sample_data": {
+            "call_id": "call-demo",
+            "duration_s": 62
+          }
+        },
+        {
+          "type": "meetcore.postcall.completed",
+          "source": "lai.meetcore",
+          "sample_data": {
+            "call_id": "call-demo",
+            "artifacts": [
+              "transcript",
+              "summary",
+              "topics"
+            ]
+          }
+        }
+      ],
+      "references": [
+        {
+          "name": "MeetCore Blueprint",
+          "path": "docs/references/25.pdf"
+        }
+      ]
+    },
+    "lai-connect": {
+      "display_name": "LAI Connect",
+      "aliases": [
+        "lai-connect",
+        "connect",
+        "lai-connect-mvp"
+      ],
+      "description": "Omnichannel messaging — WhatsApp/DM/email/CRM integration + routing + automation",
+      "ecosystem": "lai",
+      "required_docs": [
+        "docs/CONNECT_SLICES.md",
+        "docs/DATA_RETENTION_MATRIX.md"
+      ],
+      "slices": {
+        "ids": [
+          "PEC1.01",
+          "PEC1.02",
+          "PEC1.03",
+          "PEC1.04",
+          "PEC1.05"
+        ],
+        "note": "Iniciar por PEC1.01 (Inbound Message → Event Bus + Idempotência)",
+        "template_file": "CONNECT_SLICES.md"
+      },
+      "budgets": null,
+      "content_checks": [],
+      "events": [
+        {
+          "type": "lai.connect.message.received",
+          "source": "lai.connect",
+          "sample_data": {
+            "conversation_id": "conv-demo",
+            "message_id": "msg-demo",
+            "channel": "whatsapp_official",
+            "text": "Olá!",
+            "from_id": "lead-1",
+            "to_id": "seller-1"
+          }
+        },
+        {
+          "type": "lai.connect.message.sent",
+          "source": "lai.connect",
+          "sample_data": {
+            "conversation_id": "conv-demo",
+            "message_id": "msg-demo",
+            "channel": "whatsapp_official",
+            "text": "Posso ajudar com agenda?",
+            "from_id": "seller-1",
+            "to_id": "lead-1"
+          }
+        }
+      ],
+      "references": [
+        {
+          "name": "LAI Connect Blueprint",
+          "path": "docs/references/Lai Connect - blueprint confidencial.pdf"
+        }
+      ]
+    },
+    "app-lai": {
+      "display_name": "App LAI",
+      "aliases": [
+        "app-lai",
+        "app",
+        "lai-app"
+      ],
+      "description": "Unified operational hub — feed + tasks + dashboards + playbooks",
+      "ecosystem": "lai",
+      "required_docs": [
+        "docs/APP_LAI_SLICES.md",
+        "docs/DATA_RETENTION_MATRIX.md"
+      ],
+      "slices": {
+        "ids": [
+          "PEC1.01",
+          "PEC1.02",
+          "PEC1.03",
+          "PEC1.04",
+          "PEC1.05"
+        ],
+        "note": "Iniciar por PEC1.01 (Feed ingest Event Bus → Feed + dedupe)",
+        "template_file": "APP_LAI_SLICES.md"
+      },
+      "budgets": null,
+      "content_checks": [],
+      "events": [
+        {
+          "type": "lai.app.feed.item.created",
+          "source": "lai.app",
+          "sample_data": {
+            "item_id": "item-demo",
+            "kind": "followup",
+            "title": "Próximo passo",
+            "body": "Ligar para o lead amanhã",
+            "refs": [
+              "conv-123"
+            ]
+          }
+        }
+      ],
+      "references": [
+        {
+          "name": "App LAI Blueprint",
+          "path": "docs/references/App lai blueprint - confidencial.pdf"
+        },
+        {
+          "name": "App LAI Resumo",
+          "path": "docs/references/App Lai - sistema Lai resumo.pdf"
+        }
+      ]
+    },
+    "culture-people": {
+      "display_name": "Culture & People",
+      "aliases": [
+        "culture-people",
+        "culture",
+        "lai-culture",
+        "culture-and-people"
+      ],
+      "description": "Governed derivatives from sessions — ephemeral pipeline, no raw data persistence",
+      "ecosystem": "lai",
+      "required_docs": [
+        "docs/CULTURE_PEOPLE_SLICES.md",
+        "docs/DATA_RETENTION_MATRIX.md"
+      ],
+      "slices": {
+        "ids": [
+          "PEC1.01",
+          "PEC1.02",
+          "PEC1.03",
+          "PEC1.04",
+          "PEC1.05"
+        ],
+        "note": "Iniciar por PEC1.01 (Ingest de eventos → pipeline efêmero)",
+        "template_file": "CULTURE_PEOPLE_SLICES.md"
+      },
+      "budgets": null,
+      "content_checks": [],
+      "events": [
+        {
+          "type": "lai.culture.session.report.created",
+          "source": "lai.culture",
+          "sample_data": {
+            "session_id": "sess-demo",
+            "report_id": "rep-demo",
+            "summary": "Resumo governado",
+            "signals": []
+          }
+        }
+      ],
+      "references": [
+        {
+          "name": "Culture & People Doc Técnica",
+          "path": "docs/references/Lai Culture & People documentacao tecnica.pdf"
+        }
+      ]
+    },
+    "erp-financeiro": {
+      "display_name": "ERP Financeiro",
+      "aliases": [
+        "erp-financeiro",
+        "erp",
+        "financeiro"
+      ],
+      "description": "Sistema financeiro interno — contas, fluxo de caixa, DRE, balanço",
+      "ecosystem": "external",
+      "required_docs": [
+        "docs/ERP_SLICES.md",
+        "docs/DATA_RETENTION_MATRIX.md"
+      ],
+      "slices": {
+        "ids": [
+          "PEC1.01",
+          "PEC1.02",
+          "PEC1.03"
+        ],
+        "note": "Iniciar por PEC1.01 (Plano de Contas + Lançamentos básicos)",
+        "template_file": null
+      },
+      "budgets": {
+        "api_p95_ms": 500,
+        "report_generation_p95_ms": 5000,
+        "template_file": null
+      },
+      "content_checks": [],
+      "events": [
+        {
+          "type": "erp.lancamento.created",
+          "source": "erp.financeiro",
+          "sample_data": {
+            "lancamento_id": "lanc-demo",
+            "tipo": "debito",
+            "valor": 1500.0,
+            "conta": "1.1.01"
+          }
+        },
+        {
+          "type": "erp.conciliacao.completed",
+          "source": "erp.financeiro",
+          "sample_data": {
+            "conciliacao_id": "conc-demo",
+            "banco": "itau",
+            "status": "ok"
+          }
+        },
+        {
+          "type": "erp.dre.generated",
+          "source": "erp.financeiro",
+          "sample_data": {
+            "dre_id": "dre-demo",
+            "periodo": "2026-01",
+            "receita_total": 150000.0
+          }
+        }
+      ],
+      "references": [
+        {
+          "name": "Plano de Contas Padrão",
+          "path": "docs/references/plano_contas.pdf"
+        }
+      ]
+    }
+  },
+  "_template": {
+    "display_name": "NOME DO MÓDULO",
+    "aliases": [],
+    "description": "Descrição curta",
+    "ecosystem": "external",
+    "required_docs": [
+      "docs/MODULE_SLICES.md",
+      "docs/DATA_RETENTION_MATRIX.md"
+    ],
+    "slices": {
+      "ids": [
+        "PEC1.01",
+        "PEC1.02",
+        "PEC1.03"
+      ],
+      "note": "Descrição da estratégia de slicing",
+      "template_file": null
+    },
+    "budgets": {
+      "api_p95_ms": 500
+    },
+    "content_checks": [],
+    "events": [
+      {
+        "type": "module.event.name",
+        "source": "module.source",
+        "sample_data": {
+          "key": "value"
+        }
+      }
+    ],
+    "references": []
+  }
+}

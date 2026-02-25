@@ -1,0 +1,101 @@
+[
+  {
+    "test": "migration_sql_valid",
+    "passed": true,
+    "details": {
+      "has_create_table": true,
+      "has_uuid": true,
+      "has_tenant_id": true,
+      "has_constraints": true,
+      "has_indexes": true,
+      "has_triggers": true,
+      "has_references": true,
+      "no_drop_table": true,
+      "tables_count": 7
+    }
+  },
+  {
+    "test": "rls_all_tables",
+    "passed": true,
+    "details": {
+      "contacts": true,
+      "companies": true,
+      "deals": true,
+      "tasks": true,
+      "notes": true,
+      "tags": true
+    }
+  },
+  {
+    "test": "rls_tenant_isolation",
+    "passed": true,
+    "details": {
+      "has_tenant_function": true,
+      "has_role_function": true,
+      "has_admin_check": true,
+      "has_vendedor_check": true,
+      "has_service_role": true
+    }
+  },
+  {
+    "test": "edge_function_quality",
+    "passed": true,
+    "details": {
+      "has_cors": true,
+      "has_auth_header": true,
+      "has_validation": true,
+      "has_error_codes": true,
+      "has_pagination": true,
+      "has_search": true,
+      "has_dashboard": true,
+      "has_crud": true,
+      "no_any_type": true,
+      "has_rate_limit_comment": true
+    }
+  },
+  {
+    "test": "frontend_completeness",
+    "passed": true,
+    "details": {
+      "has_dashboard": true,
+      "has_contacts_list": true,
+      "has_pipeline": true,
+      "has_search": true,
+      "has_tabs": true,
+      "has_metrics": true,
+      "has_responsive": true,
+      "has_typescript": true,
+      "has_tailwind": true,
+      "has_states": true,
+      "line_count": 267,
+      "under_500_lines": true
+    }
+  },
+  {
+    "test": "seed_data_quality",
+    "passed": true,
+    "details": {
+      "has_brazilian_names": true,
+      "has_brazilian_phones": true,
+      "has_companies": true,
+      "has_deals_with_values": true,
+      "has_multiple_stages": true,
+      "has_tasks": true,
+      "has_notes": true,
+      "no_pii": true
+    }
+  },
+  {
+    "test": "package_json_valid",
+    "passed": true,
+    "details": {
+      "has_react": true,
+      "has_supabase": true,
+      "has_typescript": true,
+      "has_tailwind": true,
+      "has_vite": true,
+      "has_testing": true,
+      "has_build_script": true
+    }
+  }
+]

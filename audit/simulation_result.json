@@ -1,0 +1,209 @@
+{
+  "steps": [
+    {
+      "step": "1_prefab",
+      "status": "success",
+      "duration_ms": 0
+    },
+    {
+      "step": "2_pack0",
+      "status": "success",
+      "duration_ms": 1
+    },
+    {
+      "step": "3_codegen",
+      "status": "success",
+      "duration_ms": 4
+    },
+    {
+      "step": "4_tests",
+      "status": "success",
+      "duration_ms": 3
+    },
+    {
+      "step": "5_audit",
+      "status": "success",
+      "duration_ms": 2
+    },
+    {
+      "step": "6_lovable_check",
+      "status": "success",
+      "duration_ms": 2
+    }
+  ],
+  "errors": [],
+  "warnings": [],
+  "audit": {
+    "classification": "MVP ROBUSTO",
+    "production_score": "20/20",
+    "production_pct": 100,
+    "missing_for_production": 15,
+    "missing_items": [
+      "rate_limiting",
+      "logging_structured",
+      "health_check_endpoint",
+      "error_boundary_react",
+      "loading_states",
+      "form_create_contact",
+      "form_create_deal",
+      "delete_confirmation",
+      "toast_notifications",
+      "auth_login_page",
+      "protected_routes",
+      "e2e_tests",
+      "dockerfile",
+      "runbooks",
+      "api_docs"
+    ],
+    "has": [
+      "db_has_migrations",
+      "db_has_rls",
+      "db_has_constraints",
+      "db_has_indexes",
+      "db_has_seed",
+      "db_multi_tenant",
+      "sec_rls_all_tables",
+      "sec_role_based",
+      "sec_input_validation",
+      "sec_cors",
+      "sec_error_codes",
+      "api_crud_complete",
+      "api_pagination",
+      "api_search",
+      "api_dashboard",
+      "front_responsive",
+      "front_typescript",
+      "front_search",
+      "front_has_3_views",
+      "front_package_json"
+    ],
+    "verdict": "Score: 100%. Banco e segurança estão em nível de produção (migrations, RLS, multi-tenant, constraints, indexes). API tem CRUD completo com paginação, busca e validação. Faltam 15 itens para produção real: rate_limiting, logging_structured, health_check_endpoint, error_boundary_react, loading_states. Com esses itens, sobe para PRODUÇÃO."
+  },
+  "test_detail": {
+    "passed": 7,
+    "total": 7,
+    "results": [
+      {
+        "test": "migration_sql_valid",
+        "passed": true,
+        "details": {
+          "has_create_table": true,
+          "has_uuid": true,
+          "has_tenant_id": true,
+          "has_constraints": true,
+          "has_indexes": true,
+          "has_triggers": true,
+          "has_references": true,
+          "no_drop_table": true,
+          "tables_count": 7
+        }
+      },
+      {
+        "test": "rls_all_tables",
+        "passed": true,
+        "details": {
+          "contacts": true,
+          "companies": true,
+          "deals": true,
+          "tasks": true,
+          "notes": true,
+          "tags": true
+        }
+      },
+      {
+        "test": "rls_tenant_isolation",
+        "passed": true,
+        "details": {
+          "has_tenant_function": true,
+          "has_role_function": true,
+          "has_admin_check": true,
+          "has_vendedor_check": true,
+          "has_service_role": true
+        }
+      },
+      {
+        "test": "edge_function_quality",
+        "passed": true,
+        "details": {
+          "has_cors": true,
+          "has_auth_header": true,
+          "has_validation": true,
+          "has_error_codes": true,
+          "has_pagination": true,
+          "has_search": true,
+          "has_dashboard": true,
+          "has_crud": true,
+          "no_any_type": true,
+          "has_rate_limit_comment": true
+        }
+      },
+      {
+        "test": "frontend_completeness",
+        "passed": true,
+        "details": {
+          "has_dashboard": true,
+          "has_contacts_list": true,
+          "has_pipeline": true,
+          "has_search": true,
+          "has_tabs": true,
+          "has_metrics": true,
+          "has_responsive": true,
+          "has_typescript": true,
+          "has_tailwind": true,
+          "has_states": true,
+          "line_count": 267,
+          "under_500_lines": true
+        }
+      },
+      {
+        "test": "seed_data_quality",
+        "passed": true,
+        "details": {
+          "has_brazilian_names": true,
+          "has_brazilian_phones": true,
+          "has_companies": true,
+          "has_deals_with_values": true,
+          "has_multiple_stages": true,
+          "has_tasks": true,
+          "has_notes": true,
+          "no_pii": true
+        }
+      },
+      {
+        "test": "package_json_valid",
+        "passed": true,
+        "details": {
+          "has_react": true,
+          "has_supabase": true,
+          "has_typescript": true,
+          "has_tailwind": true,
+          "has_vite": true,
+          "has_testing": true,
+          "has_build_script": true
+        }
+      }
+    ]
+  },
+  "lovable": {
+    "lovable_compatible": true,
+    "checks": {
+      "react_compatible": true,
+      "no_node_imports": true,
+      "no_fs_access": true,
+      "tailwind_only": true,
+      "no_next_specific": true,
+      "has_default_export": true,
+      "no_env_at_render": true,
+      "uses_vite_env": true,
+      "shadcn_compatible": true,
+      "supabase_sdk": true
+    },
+    "issues": [],
+    "notes": [
+      "Lovable usa Vite + React + Tailwind — compatível",
+      "Supabase integração nativa no Lovable — compatível",
+      "import.meta.env para variáveis — compatível com Lovable",
+      "Componente com export default — compatível"
+    ]
+  }
+}

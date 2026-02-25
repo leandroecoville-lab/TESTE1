@@ -1,0 +1,30 @@
+{
+  "generated_at": "2026-02-20T01:28:55Z",
+  "version": "0.12.0",
+  "trace_id": "LAI-V012-52A59FF6",
+  "note": "Inventário público (counts por top-level). Não contém conteúdo externalizado.",
+  "counts": {
+    "CHANGELOG.md": 1,
+    "Makefile": 1,
+    "README.md": 1,
+    "SECURITY.md": 1,
+    "_gen_lai_pdf_final.py": 1,
+    ".env.sample": 1,
+    ".github": 5,
+    "00_INDEXES": 1,
+    "02_INVENTORY": 5,
+    "audit": 41,
+    "contracts": 28,
+    "db": 2,
+    "docs": 32,
+    "governance": 5,
+    "gpt_builder": 18,
+    "history": 2,
+    "infra": 3,
+    "observability": 2,
+    "runbooks": 10,
+    "services": 22,
+    "tests": 20
+  },
+  "total_files": 202
+}

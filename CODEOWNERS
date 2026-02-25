@@ -1,0 +1,8 @@
+# CODEOWNERS (governança)
+# Ajuste conforme times/módulos.
+
+* @lai-platform-owners
+/services/pack-factory/ @lai-pack-factory-owners
+/contracts/ @lai-architecture-owners
+/docs/ @lai-architecture-owners
+/runbooks/ @lai-ops-owners

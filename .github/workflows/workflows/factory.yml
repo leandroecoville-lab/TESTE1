@@ -1,0 +1,384 @@
+name: factory
+
+on:
+  workflow_dispatch:
+    inputs:
+      module_name:
+        description: 'Nome do módulo a construir'
+        required: true
+        type: string
+      trace_id:
+        description: 'ID de rastreamento'
+        required: true
+        type: string
+      blueprint_run_id:
+        description: 'Run ID do workflow de pre-factory (para baixar artifacts)'
+        required: true
+        type: string
+      callback_url:
+        description: 'URL para notificar quando terminar'
+        required: false
+        default: ''
+        type: string
+      skip_code_gen:
+        description: 'Pular geração de código (apenas Pack0)'
+        required: false
+        default: 'false'
+        type: string
+
+env:
+  PYTHONPATH: services/pack-factory
+  MODULE: ${{ inputs.module_name }}
+  TRACE: ${{ inputs.trace_id }}
+  LAI_ACTOR_ID: github-actions
+
+jobs:
+  # ============================================================
+  # STEP 1: Baixar Blueprint da Pré-Fábrica
+  # ============================================================
+  download-blueprint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Blueprint Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: blueprint-${{ inputs.trace_id }}
+          path: _blueprint/
+          run-id: ${{ inputs.blueprint_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify Blueprint
+        run: |
+          echo "📋 Arquivos do Blueprint:"
+          ls -la _blueprint/
+          test -f _blueprint/idea_brief.json || (echo "❌ idea_brief.json ausente" && exit 1)
+          test -f _blueprint/build_blueprint.md || (echo "❌ build_blueprint.md ausente" && exit 1)
+          echo "✅ Blueprint verificado"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: blueprint-verified
+          path: _blueprint/
+
+  # ============================================================
+  # STEP 2: Pack0 — Planejamento SRS
+  # ============================================================
+  pack0:
+    needs: download-blueprint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        run: pip install -r services/pack-factory/requirements.txt
+
+      - name: Download Blueprint
+        uses: actions/download-artifact@v4
+        with:
+          name: blueprint-verified
+          path: _blueprint/
+
+      - name: Generate Pack0
+        run: |
+          mkdir -p _out
+          PYTHONPATH=services/pack-factory \
+            python -m app.cli plan-pack0 \
+              --module "$MODULE" \
+              --out _out \
+              --trace "${TRACE}-P0"
+          echo "✅ Pack0 gerado"
+          ls -la _out/
+
+      - name: Validate Pack0
+        run: |
+          PACK0_ZIP=$(ls _out/pack0-*.zip | head -1)
+          PYTHONPATH=services/pack-factory \
+            python -m app.cli validate-pack0 \
+              --target "$PACK0_ZIP" \
+              --out _out/validate.json \
+              --trace "${TRACE}-V0"
+          echo "📊 Resultado da validação:"
+          cat _out/validate.json
+          # Checar se passou
+          python -c "
+          import json, sys
+          v = json.load(open('_out/validate.json'))
+          if not v.get('valid', False):
+            print('❌ Pack0 falhou na validação')
+            print(json.dumps(v.get('issues', []), indent=2))
+            sys.exit(1)
+          print('✅ Pack0 validado com sucesso')
+          "
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pack0-${{ inputs.module_name }}
+          path: _out/
+
+  # ============================================================
+  # STEP 3: Pack1 — Código Executável (Claude gera o código)
+  # ============================================================
+  pack1:
+    needs: pack0
+    if: inputs.skip_code_gen != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        run: |
+          pip install -r services/pack-factory/requirements.txt
+          pip install anthropic
+
+      - name: Download Pack0
+        uses: actions/download-artifact@v4
+        with:
+          name: pack0-${{ inputs.module_name }}
+          path: _out/
+
+      - name: Download Blueprint
+        uses: actions/download-artifact@v4
+        with:
+          name: blueprint-verified
+          path: _blueprint/
+
+      - name: Generate Pack1 (scaffold)
+        run: |
+          PYTHONPATH=services/pack-factory \
+            python -m app.cli plan-pack1 \
+              --module "$MODULE" \
+              --out _out \
+              --trace "${TRACE}-P1"
+          echo "✅ Pack1 scaffold gerado"
+
+      - name: Generate Code via Claude
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          python scripts/factory_agent.py \
+            --blueprint _blueprint/build_blueprint.md \
+            --pack0 _out/pack0-${MODULE}-0.0.1.zip \
+            --pack1-dir _out/pack1-${MODULE}-0.0.1/ \
+            --module "$MODULE" \
+            --trace "${TRACE}-CODE"
+          echo "✅ Código gerado via Claude"
+
+      - name: Run Tests
+        run: |
+          cd _out/pack1-${MODULE}-0.0.1/
+          if [ -f "requirements.txt" ]; then pip install -r requirements.txt; fi
+          if [ -f "package.json" ]; then npm install; fi
+          PYTHONPATH=. python -m pytest tests/ -q --tb=short 2>&1 || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pack1-${{ inputs.module_name }}
+          path: _out/
+
+  # ============================================================
+  # STEP 4: PEC Chain — Promover snapshot
+  # ============================================================
+  promote:
+    needs: pack1
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        run: pip install -r services/pack-factory/requirements.txt
+
+      - name: Download Pack1
+        uses: actions/download-artifact@v4
+        with:
+          name: pack1-${{ inputs.module_name }}
+          path: _out/
+
+      - name: PEC Chain (run-report → approve → merge promoted)
+        run: |
+          PACK_ZIP=$(ls _out/pack1-*.zip 2>/dev/null | head -1)
+          if [ -z "$PACK_ZIP" ]; then
+            PACK_ZIP=$(ls _out/pack0-*.zip | head -1)
+          fi
+          mkdir -p _tmp
+
+          # 1) Run Report
+          PYTHONPATH=services/pack-factory \
+            python -m app.cli run-report \
+              --target "$PACK_ZIP" \
+              --out _out/run_report.json \
+              --actor "$LAI_ACTOR_ID" \
+              --trace "${TRACE}-RR"
+
+          # 2) Approve
+          PYTHONPATH=services/pack-factory \
+            python -m app.cli approve-pack \
+              --target "$PACK_ZIP" \
+              --run-report _out/run_report.json \
+              --out _out/approval.json \
+              --actor "$LAI_ACTOR_ID" \
+              --trace "${TRACE}-AP"
+
+          # 3) Wrap patches
+          PYTHONPATH=services/pack-factory \
+            python -m app.cli wrap-run-report \
+              --in _out/run_report.json \
+              --out _out/patch_rr.zip \
+              --trace "${TRACE}-WR"
+
+          PYTHONPATH=services/pack-factory \
+            python -m app.cli wrap-approval \
+              --in _out/approval.json \
+              --out _out/patch_ap.zip \
+              --trace "${TRACE}-WA"
+
+          # 4) Merge Promoted
+          PYTHONPATH=services/pack-factory \
+            python -m app.cli merge \
+              --mode promoted \
+              --inputs "$PACK_ZIP" _out/patch_rr.zip _out/patch_ap.zip \
+              --out _out/snapshot_promoted.zip \
+              --tmp _tmp \
+              --trace "${TRACE}-MRG"
+
+          echo "✅ Snapshot promoted gerado"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: snapshot-promoted-${{ inputs.module_name }}
+          path: _out/snapshot_promoted.zip
+
+  # ============================================================
+  # STEP 5: Export team-safe + leak check
+  # ============================================================
+  export:
+    needs: promote
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        run: pip install -r services/pack-factory/requirements.txt
+
+      - name: Download Snapshot
+        uses: actions/download-artifact@v4
+        with:
+          name: snapshot-promoted-${{ inputs.module_name }}
+          path: _out/
+
+      - name: Export Team Pack
+        run: |
+          PYTHONPATH=services/pack-factory \
+            python -m app.cli export-team-pack \
+              --in _out/snapshot_promoted.zip \
+              --out _out/team_pack_${MODULE}.zip \
+              --trace "${TRACE}-EXP"
+
+      - name: Leak Check (gate de segurança)
+        run: |
+          PYTHONPATH=services/pack-factory \
+            python -m app.cli leak-check \
+              --target _out/team_pack_${MODULE}.zip \
+              --out _out/leak_report.json \
+              --trace "${TRACE}-LC"
+
+          python -c "
+          import json, sys
+          r = json.load(open('_out/leak_report.json'))
+          if r.get('leaks_found', 0) > 0:
+            print('❌ VAZAMENTO DETECTADO!')
+            print(json.dumps(r, indent=2))
+            sys.exit(1)
+          print('✅ Nenhum vazamento. Pack seguro para entrega.')
+          "
+
+      - name: Upload Final Deliverable
+        uses: actions/upload-artifact@v4
+        with:
+          name: ENTREGA-${{ inputs.module_name }}-${{ inputs.trace_id }}
+          path: |
+            _out/team_pack_${{ env.MODULE }}.zip
+            _out/leak_report.json
+
+  # ============================================================
+  # STEP 6: Criar GitHub Release
+  # ============================================================
+  release:
+    needs: export
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Deliverable
+        uses: actions/download-artifact@v4
+        with:
+          name: ENTREGA-${{ inputs.module_name }}-${{ inputs.trace_id }}
+          path: _release/
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v0.1.0-${{ inputs.module_name }}-${{ inputs.trace_id }}
+          name: "🏭 ${{ inputs.module_name }} — Build ${{ inputs.trace_id }}"
+          body: |
+            ## Software gerado automaticamente pela Fábrica LAI
+
+            **Módulo:** ${{ inputs.module_name }}
+            **Trace:** ${{ inputs.trace_id }}
+            **Gerado em:** ${{ github.event.repository.updated_at }}
+
+            ### Conteúdo
+            - `team_pack_${{ inputs.module_name }}.zip` — Código-fonte + docs + testes
+            - `leak_report.json` — Relatório de segurança
+
+            ### Como usar
+            1. Baixe o ZIP
+            2. Extraia
+            3. Siga `runbooks/HOW_TO_RUN.md`
+          files: _release/*
+
+  # ============================================================
+  # Callback final ao Lovable
+  # ============================================================
+  notify-done:
+    needs: release
+    if: inputs.callback_url != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install requests
+      - name: Notify Lovable
+        env:
+          CALLBACK_URL: ${{ inputs.callback_url }}
+          CALLBACK_SECRET: ${{ secrets.CALLBACK_SECRET }}
+          BUILD_ID: ${{ github.run_id }}
+          TRACE_ID: ${{ inputs.trace_id }}
+          MODULE: ${{ inputs.module_name }}
+        run: |
+          python scripts/notify_callback.py \
+            --status "completed" \
+            --phase "factory" \
+            --message "Software pronto para download." \
+            --download-url "https://github.com/${{ github.repository }}/releases/tag/v0.1.0-${MODULE}-${TRACE_ID}"

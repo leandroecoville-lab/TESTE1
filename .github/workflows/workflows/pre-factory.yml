@@ -1,0 +1,140 @@
+name: pre-factory
+
+on:
+  workflow_dispatch:
+    inputs:
+      user_request:
+        description: 'Texto livre descrevendo o software desejado'
+        required: true
+        type: string
+      mode:
+        description: 'Nível de análise: SCAN (rápido) ou DILIGENCE (completo)'
+        required: false
+        default: 'DILIGENCE'
+        type: choice
+        options:
+          - SCAN
+          - DILIGENCE
+      module_name:
+        description: 'Nome sugerido para o módulo (ex: scheduling, payments)'
+        required: true
+        type: string
+      trace_id:
+        description: 'ID de rastreamento (gerado pelo front)'
+        required: false
+        default: ''
+        type: string
+      callback_url:
+        description: 'URL para notificar quando terminar'
+        required: false
+        default: ''
+        type: string
+
+env:
+  PYTHONPATH: services/pack-factory
+  TRACE_ID: ${{ inputs.trace_id || github.run_id }}
+
+jobs:
+  # ============================================================
+  # FASE 1: PRÉ-FÁBRICA — Texto → Blueprint
+  # ============================================================
+  generate-blueprint:
+    runs-on: ubuntu-latest
+    outputs:
+      module_name: ${{ steps.blueprint.outputs.module_name }}
+      trace_id: ${{ steps.blueprint.outputs.trace_id }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install anthropic jsonschema requests
+
+      - name: Generate Blueprint via Claude
+        id: blueprint
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          USER_REQUEST: ${{ inputs.user_request }}
+          MODE: ${{ inputs.mode }}
+          MODULE_NAME: ${{ inputs.module_name }}
+        run: python scripts/pre_factory_agent.py
+
+      - name: Validate output schemas
+        run: |
+          python -c "
+          import json, jsonschema, sys
+          schemas = {
+            'idea_brief.v1': 'contracts/idea_brief.v1.schema.json',
+            'market_scan_report.v1': 'contracts/market_scan_report.v1.schema.json',
+            'ecosystem_fit_map.v1': 'contracts/ecosystem_fit_map.v1.schema.json'
+          }
+          errors = []
+          for name, schema_path in schemas.items():
+            try:
+              schema = json.load(open(schema_path))
+              data = json.load(open(f'_out/pre_factory/{name.replace(\".v1\", \"\")}.json'))
+              jsonschema.validate(data, schema)
+              print(f'✅ {name}: válido')
+            except Exception as e:
+              errors.append(f'❌ {name}: {e}')
+              print(f'❌ {name}: {e}')
+          if errors:
+            sys.exit(1)
+          "
+
+      - name: Upload Blueprint Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: blueprint-${{ env.TRACE_ID }}
+          path: _out/pre_factory/
+          retention-days: 30
+
+  # ============================================================
+  # FASE 2: Disparar Fábrica automaticamente
+  # ============================================================
+  trigger-factory:
+    needs: generate-blueprint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Factory Workflow
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'factory.yml',
+              ref: 'main',
+              inputs: {
+                module_name: '${{ needs.generate-blueprint.outputs.module_name }}',
+                trace_id: '${{ needs.generate-blueprint.outputs.trace_id }}',
+                blueprint_run_id: '${{ github.run_id }}',
+                callback_url: '${{ inputs.callback_url }}'
+              }
+            });
+
+  # ============================================================
+  # Notificar callback (se configurado)
+  # ============================================================
+  notify-phase-complete:
+    needs: [generate-blueprint, trigger-factory]
+    if: inputs.callback_url != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Notify Lovable
+        env:
+          CALLBACK_URL: ${{ inputs.callback_url }}
+          CALLBACK_SECRET: ${{ secrets.CALLBACK_SECRET }}
+          BUILD_ID: ${{ github.run_id }}
+          TRACE_ID: ${{ env.TRACE_ID }}
+        run: |
+          python scripts/notify_callback.py \
+            --status "phase_complete" \
+            --phase "pre-factory" \
+            --message "Blueprint gerado com sucesso. Fábrica iniciada."

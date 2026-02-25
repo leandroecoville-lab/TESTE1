@@ -1,1 +1,27 @@
+name: ci
 
+on:
+  push:
+    branches: [main, principal]
+  pull_request:
+    branches: [main, principal]
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r services/pack-factory/requirements.txt
+      - name: Compile (Syntax Gate)
+        run: |
+          python -m compileall -q services/pack-factory
+      - name: Run tests
+        run: |
+          pytest -q

@@ -1,0 +1,94 @@
+{
+  "module": "crm-contacts",
+  "version": "0.0.1",
+  "entities": [
+    "contacts",
+    "companies",
+    "deals",
+    "tasks",
+    "notes",
+    "tags",
+    "contact_tags"
+  ],
+  "api_endpoints": [
+    {
+      "method": "GET",
+      "path": "/contacts",
+      "auth": true,
+      "rls": true
+    },
+    {
+      "method": "POST",
+      "path": "/contacts",
+      "auth": true,
+      "rls": true
+    },
+    {
+      "method": "PATCH",
+      "path": "/contacts/:id",
+      "auth": true,
+      "rls": true
+    },
+    {
+      "method": "DELETE",
+      "path": "/contacts/:id",
+      "auth": true,
+      "rls": true
+    },
+    {
+      "method": "GET",
+      "path": "/deals",
+      "auth": true,
+      "rls": true
+    },
+    {
+      "method": "POST",
+      "path": "/deals",
+      "auth": true,
+      "rls": true
+    },
+    {
+      "method": "PATCH",
+      "path": "/deals/:id/stage",
+      "auth": true,
+      "rls": true
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard",
+      "auth": true,
+      "rls": true
+    }
+  ],
+  "permissions": {
+    "admin": [
+      "contacts:*",
+      "companies:*",
+      "deals:*",
+      "tasks:*",
+      "notes:*",
+      "tags:*",
+      "settings:*"
+    ],
+    "vendedor": [
+      "contacts:crud_own",
+      "companies:read",
+      "deals:crud_own",
+      "tasks:crud_own",
+      "notes:crud_own"
+    ],
+    "visualizador": [
+      "contacts:read",
+      "companies:read",
+      "deals:read",
+      "dashboard:read"
+    ]
+  },
+  "non_functional": {
+    "p95_latency_ms": 200,
+    "uptime_slo": 99.9,
+    "max_concurrent_users": 250,
+    "data_retention_days": 365,
+    "backup_frequency": "daily"
+  }
+}

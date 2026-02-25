@@ -1,0 +1,37 @@
+{
+  "module": "crm-contacts",
+  "description": "Sistema CRM de gestão de contatos semelhante ao HubSpot",
+  "entities": [
+    "Contact",
+    "Company",
+    "Deal",
+    "Task",
+    "Note",
+    "Tag"
+  ],
+  "flows": [
+    "CRUD completo de contatos com busca e filtros",
+    "Pipeline de deals com kanban (Novo → Qualificado → Proposta → Fechado/Ganho → Fechado/Perdido)",
+    "Associação contato ↔ empresa ↔ deal",
+    "Timeline de atividades por contato",
+    "Tagging e segmentação",
+    "Dashboard com métricas (total contatos, deals abertos, valor pipeline, taxa conversão)"
+  ],
+  "permissions": {
+    "admin": "CRUD tudo + gerenciar usuários + configurações",
+    "vendedor": "CRUD contatos/deals próprios + ver pipeline",
+    "visualizador": "Somente leitura"
+  },
+  "integrations": [
+    "Supabase Auth",
+    "Supabase Storage (fotos)",
+    "Supabase Realtime (pipeline)"
+  ],
+  "tech_stack": {
+    "frontend": "React + TypeScript + Tailwind + shadcn/ui",
+    "backend": "Supabase (Postgres + Auth + Storage + Edge Functions)",
+    "deploy": "Vercel (front) + Supabase (back)"
+  },
+  "multi_tenant": true,
+  "trace_id": "SIM-6d93bf31"
+}

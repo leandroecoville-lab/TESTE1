@@ -1,0 +1,11 @@
+{
+  "schema_version": "1.0",
+  "pack_ref": "pack0-culture-people@0.0.1",
+  "pack_sha256": "df932b42fec4a170ee7e90f3d094e6bd1beee650c20ab1d7b15f69b37e1902f5",
+  "decision": "approved",
+  "criteria_version": "DoD v1.0",
+  "notes": "",
+  "actor_id": "test-validation",
+  "trace_id": "TEST-AP-culture-people",
+  "timestamp": "2026-02-25T01:56:38Z"
+}

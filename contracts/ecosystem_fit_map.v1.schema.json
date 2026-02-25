@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ecosystem_fit_map.v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "trace_id",
+    "reuse_candidates",
+    "new_module_needed",
+    "event_bus_topics",
+    "integrations"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string"
+    },
+    "trace_id": {
+      "type": "string"
+    },
+    "reuse_candidates": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "new_module_needed": {
+      "type": "boolean"
+    },
+    "event_bus_topics": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "integrations": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "additionalProperties": true
+}

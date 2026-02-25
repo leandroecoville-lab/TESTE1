@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0",
+  "trace_id": "TEST-MRG-culture-people",
+  "timestamp": "2026-02-25T01:56:39Z",
+  "inputs": [
+    {
+      "path": "pack0-culture-people-0.0.1.zip",
+      "sha256": "df932b42fec4a170ee7e90f3d094e6bd1beee650c20ab1d7b15f69b37e1902f5"
+    },
+    {
+      "path": "patch_rr_culture-people.zip",
+      "sha256": "2ce8d3f2cfb5e479c55901a714e0defbb1ac0bb222a4cab0fa4cfbb439dcc271"
+    },
+    {
+      "path": "patch_ap_culture-people.zip",
+      "sha256": "d8b6c8d1baa80a9a6b352222c380556fe38731445b49d2315344eeb708f3b06a"
+    }
+  ],
+  "mode": "promoted",
+  "notes": "gerado automaticamente pelo merge (determinístico)"
+}

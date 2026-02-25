@@ -1,0 +1,22 @@
+[
+  {
+    "type": "crm.contact.created",
+    "schema": "contact.created.v1.json",
+    "level": "standard"
+  },
+  {
+    "type": "crm.contact.updated",
+    "schema": "contact.updated.v1.json",
+    "level": "light"
+  },
+  {
+    "type": "crm.deal.stage_changed",
+    "schema": "deal.stage_changed.v1.json",
+    "level": "standard"
+  },
+  {
+    "type": "crm.deal.closed",
+    "schema": "deal.closed.v1.json",
+    "level": "strong"
+  }
+]

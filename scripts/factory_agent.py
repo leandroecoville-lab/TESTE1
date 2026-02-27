@@ -2,10 +2,11 @@
 """
 FACTORY AGENT — Gera código executável a partir do blueprint.
 
-Recebe o blueprint da Pré-Fábrica + Pack0 + Pack1 scaffold
-e usa Claude API para gerar código real nos arquivos do Pack1.
-
-Roda dentro de GitHub Actions.
+Correções:
+- Usa STREAMING (Anthropic SDK exige quando pode passar de 10 min)
+- Lê CLAUDE_MODEL e CLAUDE_MAX_TOKENS do env
+- Junta todos os blocos de texto
+- Extrai JSON com fallback (corta do primeiro { ao último })
 """
 from __future__ import annotations
 
@@ -37,44 +38,15 @@ Sua função é gerar código executável de produção a partir de um blueprint
 ## Estrutura obrigatória de saída
 Retorne um JSON com a seguinte estrutura:
 {
-  "files": [
-    {
-      "path": "caminho/relativo/arquivo.py",
-      "content": "conteúdo completo do arquivo"
-    }
-  ],
-  "dependencies": {
-    "python": ["fastapi", "uvicorn", ...],
-    "node": ["express", ...]
-  },
-  "docker": {
-    "dockerfile": "conteúdo do Dockerfile",
-    "compose": "conteúdo do docker-compose.yml"
-  },
-  "tests": [
-    {
-      "path": "tests/test_xxx.py",
-      "content": "conteúdo do teste"
-    }
-  ],
-  "runbooks": {
-    "how_to_run": "markdown",
-    "how_to_deploy": "markdown",
-    "how_to_rollback": "markdown"
-  }
+  "files": [{"path": "...", "content": "..."}],
+  "dependencies": {"python": ["fastapi", "uvicorn"], "node": ["express"]},
+  "docker": {"dockerfile": "...", "compose": "..."},
+  "tests": [{"path": "tests/test_xxx.py", "content": "..."}],
+  "runbooks": {"how_to_run": "...", "how_to_deploy": "...", "how_to_rollback": "..."}
 }
 
 Responda APENAS com JSON válido, sem texto adicional ou markdown fences.
 """
-
-
-def _join_text_blocks(response) -> str:
-    parts: List[str] = []
-    for b in getattr(response, "content", []) or []:
-        t = getattr(b, "text", None)
-        if isinstance(t, str):
-            parts.append(t)
-    return "".join(parts).strip()
 
 
 def _strip_fences(s: str) -> str:
@@ -90,7 +62,7 @@ def _extract_json_text(raw: str) -> str:
     s = _strip_fences(raw)
     if not s:
         return s
-    # tenta direto
+    # tentativa direta
     try:
         json.loads(s)
         return s
@@ -120,7 +92,7 @@ def main():
 
     blueprint = blueprint_path.read_text(encoding="utf-8")
 
-    # ── Ler Pack0 PLAN.md (se existir no ZIP) ────────────────
+    # ── Ler Pack0 PLAN.md ─────────────────────────────────────
     plan_md = ""
     try:
         with zipfile.ZipFile(pack0_path, "r") as z:
@@ -130,12 +102,11 @@ def main():
     except Exception as e:
         print(f"⚠️  Não consegui ler Pack0: {e}")
 
-    # ✅ monta o bloco do plano FORA do f-string (evita SyntaxError)
     plan_block = plan_md if plan_md else "(não disponível)"
     if plan_md and len(plan_md) > 8000:
         plan_block = plan_md[:8000] + "\n...(truncado)"
 
-    # ── Ler ecosystem_fit (compat nomes) ─────────────────────
+    # ── ecosystem_fit (compat nomes) ──────────────────────────
     eco_info = ""
     for eco_name in ("ecosystem_fit.json", "ecosystem_fit_map.json"):
         eco_path = blueprint_path.parent / eco_name
@@ -149,9 +120,6 @@ def main():
 - Integrações: {', '.join(eco.get('integrations', []))}
 """.strip()
             break
-
-    # ── Chamar Claude API ────────────────────────────────────
-    client = anthropic.Anthropic()
 
     model = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-20250514").strip()
     max_tokens = int(os.getenv("CLAUDE_MAX_TOKENS", "40000"))
@@ -176,14 +144,29 @@ Gere o código completo para este módulo. Código real, executável, com testes
     print(f"📋 Plan: {len(plan_md)} chars")
     print(f"🧠 Model: {model} | max_tokens={max_tokens}")
 
-    response = client.messages.create(
+    client = anthropic.Anthropic()
+
+    # ✅ STREAMING obrigatório para requests longas
+    chunks: List[str] = []
+    with client.messages.stream(
         model=model,
         max_tokens=max_tokens,
         system=SYSTEM_PROMPT,
         messages=[{"role": "user", "content": user_message}],
-    )
+    ) as stream:
+        for event in stream:
+            # eventos que trazem texto incremental
+            delta = getattr(event, "delta", None)
+            if delta is not None:
+                text = getattr(delta, "text", None)
+                if isinstance(text, str) and text:
+                    chunks.append(text)
 
-    raw_text = _join_text_blocks(response)
+        # pega mensagem final para usage/stop_reason quando disponível
+        final_msg = getattr(stream, "get_final_message", None)
+        response = final_msg() if callable(final_msg) else None
+
+    raw_text = "".join(chunks).strip()
     json_text = _extract_json_text(raw_text)
 
     try:
@@ -194,7 +177,6 @@ Gere o código completo para este módulo. Código real, executável, com testes
         (pack1_dir / "_raw_response_extracted.json.txt").write_text(json_text, encoding="utf-8")
         sys.exit(1)
 
-    # ── Escrever arquivos gerados ────────────────────────────
     files_written = 0
 
     for file_info in result.get("files", []) or []:
@@ -234,18 +216,21 @@ Gere o código completo para este módulo. Código real, executável, com testes
             (rb_dir / f"{name.upper()}.md").write_text(content, encoding="utf-8")
             files_written += 1
 
+    usage = getattr(response, "usage", None) if response else None
     meta = {
         "trace_id": args.trace,
         "module": args.module,
         "files_written": files_written,
         "model": model,
-        "input_tokens": getattr(getattr(response, "usage", None), "input_tokens", None),
-        "output_tokens": getattr(getattr(response, "usage", None), "output_tokens", None),
+        "input_tokens": getattr(usage, "input_tokens", None) if usage else None,
+        "output_tokens": getattr(usage, "output_tokens", None) if usage else None,
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
     (pack1_dir / "_gen_meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
 
     print(f"✅ {files_written} arquivos gerados no Pack1")
+    if meta["input_tokens"] is not None or meta["output_tokens"] is not None:
+        print(f"   📊 Tokens: {meta['input_tokens']} in / {meta['output_tokens']} out")
 
 
 if __name__ == "__main__":

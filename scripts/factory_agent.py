@@ -5,10 +5,7 @@ FACTORY AGENT — Gera código executável a partir do blueprint.
 Recebe o blueprint da Pré-Fábrica + Pack0 + Pack1 scaffold
 e usa Claude API para gerar código real nos arquivos do Pack1.
 
-Correções:
-- Usa Structured Outputs (output_config.format com json_schema) => JSON sempre válido
-- Lê CLAUDE_MODEL e CLAUDE_MAX_TOKENS do env
-- Detecta truncamento (stop_reason == max_tokens) e salva raw
+Roda dentro de GitHub Actions.
 """
 from __future__ import annotations
 
@@ -19,7 +16,7 @@ import sys
 import zipfile
 from pathlib import Path
 from datetime import datetime, timezone
-from typing import Any, Dict, List
+from typing import List
 
 import anthropic
 
@@ -37,82 +34,74 @@ Sua função é gerar código executável de produção a partir de um blueprint
 7. Código em Python (FastAPI) ou TypeScript (Next.js/Express) conforme o blueprint indicar.
 8. Sem bibliotecas obscuras — preferir stdlib + libs mainstream.
 
-## Estrutura obrigatória de saída (JSON)
+## Estrutura obrigatória de saída
+Retorne um JSON com a seguinte estrutura:
 {
-  "files": [{"path":"...","content":"..."}],
-  "dependencies": {"python":[...], "node":[...]},
-  "docker": {"dockerfile":"...", "compose":"..."},
-  "tests": [{"path":"...","content":"..."}],
-  "runbooks": {"how_to_run":"...", "how_to_deploy":"...", "how_to_rollback":"..."}
+  "files": [
+    {
+      "path": "caminho/relativo/arquivo.py",
+      "content": "conteúdo completo do arquivo"
+    }
+  ],
+  "dependencies": {
+    "python": ["fastapi", "uvicorn", ...],
+    "node": ["express", ...]
+  },
+  "docker": {
+    "dockerfile": "conteúdo do Dockerfile",
+    "compose": "conteúdo do docker-compose.yml"
+  },
+  "tests": [
+    {
+      "path": "tests/test_xxx.py",
+      "content": "conteúdo do teste"
+    }
+  ],
+  "runbooks": {
+    "how_to_run": "markdown",
+    "how_to_deploy": "markdown",
+    "how_to_rollback": "markdown"
+  }
 }
 
-Responda APENAS com JSON válido, sem texto adicional.
+Responda APENAS com JSON válido, sem texto adicional ou markdown fences.
 """
 
-# JSON Schema para Structured Outputs (garante JSON parseável)
-OUTPUT_SCHEMA: Dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "files": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {"path": {"type": "string"}, "content": {"type": "string"}},
-                "required": ["path", "content"],
-                "additionalProperties": False,
-            },
-        },
-        "dependencies": {
-            "type": "object",
-            "properties": {
-                "python": {"type": "array", "items": {"type": "string"}},
-                "node": {"type": "array", "items": {"type": "string"}},
-            },
-            "additionalProperties": False,
-        },
-        "docker": {
-            "type": "object",
-            "properties": {"dockerfile": {"type": "string"}, "compose": {"type": "string"}},
-            "additionalProperties": False,
-        },
-        "tests": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {"path": {"type": "string"}, "content": {"type": "string"}},
-                "required": ["path", "content"],
-                "additionalProperties": False,
-            },
-        },
-        "runbooks": {
-            "type": "object",
-            "properties": {
-                "how_to_run": {"type": "string"},
-                "how_to_deploy": {"type": "string"},
-                "how_to_rollback": {"type": "string"},
-            },
-            "additionalProperties": False,
-        },
-    },
-    "required": ["files"],
-    "additionalProperties": False,
-}
 
-
-def _safe_rel_path(rel: str) -> Path:
-    rel_norm = Path(rel).as_posix().lstrip("/")
-    if rel_norm.startswith("..") or "/../" in rel_norm:
-        raise ValueError(f"Path inválido (..): {rel}")
-    return Path(rel_norm)
-
-
-def _join_text_blocks(resp) -> str:
+def _join_text_blocks(response) -> str:
     parts: List[str] = []
-    for b in getattr(resp, "content", []) or []:
+    for b in getattr(response, "content", []) or []:
         t = getattr(b, "text", None)
         if isinstance(t, str):
             parts.append(t)
     return "".join(parts).strip()
+
+
+def _strip_fences(s: str) -> str:
+    s = s.strip()
+    if s.startswith("```"):
+        s = s.split("\n", 1)[1] if "\n" in s else ""
+    if s.endswith("```"):
+        s = s.rsplit("```", 1)[0]
+    return s.strip()
+
+
+def _extract_json_text(raw: str) -> str:
+    s = _strip_fences(raw)
+    if not s:
+        return s
+    # tenta direto
+    try:
+        json.loads(s)
+        return s
+    except Exception:
+        pass
+    # recorta do primeiro { ao último }
+    i = s.find("{")
+    j = s.rfind("}")
+    if i != -1 and j != -1 and j > i:
+        return s[i : j + 1].strip()
+    return s
 
 
 def main():
@@ -131,7 +120,7 @@ def main():
 
     blueprint = blueprint_path.read_text(encoding="utf-8")
 
-    # Ler Pack0 PLAN.md
+    # ── Ler Pack0 PLAN.md (se existir no ZIP) ────────────────
     plan_md = ""
     try:
         with zipfile.ZipFile(pack0_path, "r") as z:
@@ -141,11 +130,17 @@ def main():
     except Exception as e:
         print(f"⚠️  Não consegui ler Pack0: {e}")
 
-    # Ler ecosystem_fit (compat nomes)
+    # ✅ monta o bloco do plano FORA do f-string (evita SyntaxError)
+    plan_block = plan_md if plan_md else "(não disponível)"
+    if plan_md and len(plan_md) > 8000:
+        plan_block = plan_md[:8000] + "\n...(truncado)"
+
+    # ── Ler ecosystem_fit (compat nomes) ─────────────────────
     eco_info = ""
-    for p in [blueprint_path.parent / "ecosystem_fit.json", blueprint_path.parent / "ecosystem_fit_map.json"]:
-        if p.exists():
-            eco = json.loads(p.read_text(encoding="utf-8"))
+    for eco_name in ("ecosystem_fit.json", "ecosystem_fit_map.json"):
+        eco_path = blueprint_path.parent / eco_name
+        if eco_path.exists():
+            eco = json.loads(eco_path.read_text(encoding="utf-8"))
             eco_info = f"""
 ## Ecosystem Fit
 - Módulos para reusar: {', '.join(eco.get('reuse_candidates', []))}
@@ -155,7 +150,10 @@ def main():
 """.strip()
             break
 
-    model = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6").strip()
+    # ── Chamar Claude API ────────────────────────────────────
+    client = anthropic.Anthropic()
+
+    model = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-20250514").strip()
     max_tokens = int(os.getenv("CLAUDE_MAX_TOKENS", "40000"))
 
     user_message = f"""
@@ -166,7 +164,7 @@ def main():
 {blueprint}
 
 ## Plano SRS (Pack0)
-{(plan_md[:8000] + "\n...(truncado)") if plan_md and len(plan_md) > 8000 else (plan_md or "(não disponível)")}
+{plan_block}
 
 {eco_info}
 
@@ -178,53 +176,35 @@ Gere o código completo para este módulo. Código real, executável, com testes
     print(f"📋 Plan: {len(plan_md)} chars")
     print(f"🧠 Model: {model} | max_tokens={max_tokens}")
 
-    client = anthropic.Anthropic()
-
-    request_kwargs = dict(
+    response = client.messages.create(
         model=model,
         max_tokens=max_tokens,
         system=SYSTEM_PROMPT,
         messages=[{"role": "user", "content": user_message}],
     )
 
-    # Structured Outputs: output_config.format
-    try:
-        response = client.messages.create(
-            **request_kwargs,
-            output_config={"format": {"type": "json_schema", "schema": OUTPUT_SCHEMA}},
-        )
-    except TypeError:
-        # compat com SDK antigo (transição)
-        response = client.messages.create(
-            **request_kwargs,
-            output_format={"type": "json_schema", "schema": OUTPUT_SCHEMA},
-        )
-
-    stop_reason = getattr(response, "stop_reason", None)
     raw_text = _join_text_blocks(response)
-
-    if stop_reason == "max_tokens":
-        (pack1_dir / "_raw_response.txt").write_text(raw_text, encoding="utf-8")
-        print("❌ Saída truncada por max_tokens. Aumente CLAUDE_MAX_TOKENS (ex: 60000) ou reduza o escopo.")
-        sys.exit(1)
+    json_text = _extract_json_text(raw_text)
 
     try:
-        result = json.loads(raw_text)
+        result = json.loads(json_text)
     except json.JSONDecodeError as e:
         print(f"❌ JSON inválido do Claude: {e}")
         (pack1_dir / "_raw_response.txt").write_text(raw_text, encoding="utf-8")
+        (pack1_dir / "_raw_response_extracted.json.txt").write_text(json_text, encoding="utf-8")
         sys.exit(1)
 
+    # ── Escrever arquivos gerados ────────────────────────────
     files_written = 0
 
     for file_info in result.get("files", []) or []:
-        fpath = pack1_dir / _safe_rel_path(file_info["path"])
+        fpath = pack1_dir / file_info["path"]
         fpath.parent.mkdir(parents=True, exist_ok=True)
         fpath.write_text(file_info["content"], encoding="utf-8")
         files_written += 1
 
     for test_info in result.get("tests", []) or []:
-        tpath = pack1_dir / _safe_rel_path(test_info["path"])
+        tpath = pack1_dir / test_info["path"]
         tpath.parent.mkdir(parents=True, exist_ok=True)
         tpath.write_text(test_info["content"], encoding="utf-8")
         files_written += 1
@@ -251,9 +231,8 @@ Gere o código completo para este módulo. Código real, executável, com testes
         rb_dir = pack1_dir / "runbooks"
         rb_dir.mkdir(parents=True, exist_ok=True)
         for name, content in runbooks.items():
-            if isinstance(content, str) and content.strip():
-                (rb_dir / f"{name.upper()}.md").write_text(content, encoding="utf-8")
-                files_written += 1
+            (rb_dir / f"{name.upper()}.md").write_text(content, encoding="utf-8")
+            files_written += 1
 
     meta = {
         "trace_id": args.trace,

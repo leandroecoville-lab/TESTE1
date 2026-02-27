@@ -96,14 +96,18 @@ jobs:
 
   # ============================================================
   # FASE 2: Disparar Fábrica automaticamente
-  # ============================================================
+   # ============================================================
   trigger-factory:
+    permissions:
+      contents: read
+      actions: write
     needs: generate-blueprint
     runs-on: ubuntu-latest
     steps:
       - name: Trigger Factory Workflow
         uses: actions/github-script@v7
         with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             await github.rest.actions.createWorkflowDispatch({
               owner: context.repo.owner,

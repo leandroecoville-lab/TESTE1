@@ -116,10 +116,19 @@ jobs:
           python -c "
           import json, sys
           v = json.load(open('_out/validate.json'))
-          if not v.get('valid', False):
+
+          # Compat: alguns validadores usam 'ok', outros usam 'valid'
+          passed = v.get('ok', None)
+          if passed is None:
+            passed = v.get('valid', False)
+
+          if not passed:
             print('❌ Pack0 falhou na validação')
-            print(json.dumps(v.get('issues', []), indent=2, ensure_ascii=False))
+            # tenta imprimir o máximo de contexto possível
+            print('gaps:', json.dumps(v.get('gaps', []), indent=2, ensure_ascii=False))
+            print('issues:', json.dumps(v.get('issues', []), indent=2, ensure_ascii=False))
             sys.exit(1)
+
           print('✅ Pack0 validado com sucesso')
           "
 

@@ -216,11 +216,21 @@ Gere o JSON completo com idea_brief, market_scan, ecosystem_fit, build_blueprint
     market = result.get("market_scan", {}) or {}
     market.setdefault("schema_version", "1.0")
     market.setdefault("trace_id", TRACE_ID)
+    
+    # nomes esperados pelo validador
+    _write_json(OUT_DIR / "market_scan_report.json", market)
+    
+    # opcional: manter o antigo também (compatibilidade)
     _write_json(OUT_DIR / "market_scan.json", market)
-
+    
     eco = result.get("ecosystem_fit", {}) or {}
     eco.setdefault("schema_version", "1.0")
     eco.setdefault("trace_id", TRACE_ID)
+    
+    # nomes esperados pelo validador
+    _write_json(OUT_DIR / "ecosystem_fit_map.json", eco)
+    
+    # opcional: manter o antigo também (compatibilidade)
     _write_json(OUT_DIR / "ecosystem_fit.json", eco)
 
     blueprint = result.get("build_blueprint", "") or ""

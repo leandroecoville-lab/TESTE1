@@ -144,30 +144,37 @@ jobs:
     needs: pack0
     if: ${{ inputs.skip_code_gen != 'true' }}
     runs-on: ubuntu-latest
+    env:
+      # Evita truncar a resposta (que costuma quebrar JSON no meio)
+      CLAUDE_MAX_TOKENS: "40000"
+      # Mantém seu modelo atual (você pode trocar aqui se quiser)
+      CLAUDE_MODEL: "claude-sonnet-4-20250514"
+  
     steps:
       - uses: actions/checkout@v4
-
+  
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-
+  
       - name: Install deps
         run: |
+          python -m pip install --upgrade pip
           pip install -r services/pack-factory/requirements.txt
-          pip install anthropic
-
+          pip install -U anthropic
+  
       - name: Download Pack0
         uses: actions/download-artifact@v4
         with:
           name: pack0-${{ inputs.module_name }}
           path: _out/
-
+  
       - name: Download Blueprint
         uses: actions/download-artifact@v4
         with:
           name: blueprint-verified
           path: _blueprint/
-
+  
       - name: Generate Pack1 (scaffold)
         run: |
           PYTHONPATH=services/pack-factory \
@@ -177,31 +184,33 @@ jobs:
               --trace "${TRACE}-P1"
           echo "✅ Pack1 scaffold gerado"
           ls -la _out/
-
+  
       - name: Generate Code via Claude
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           PACK0_ZIP="$(ls _out/pack0-*.zip | head -1)"
           PACK1_DIR="$(ls -d _out/pack1-* 2>/dev/null | head -1)"
-
+  
           echo "📦 Pack0 zip: $PACK0_ZIP"
           echo "📁 Pack1 dir: $PACK1_DIR"
-
+          echo "🧠 CLAUDE_MODEL: $CLAUDE_MODEL"
+          echo "🧠 CLAUDE_MAX_TOKENS: $CLAUDE_MAX_TOKENS"
+  
           if [ -z "$PACK1_DIR" ]; then
             echo "❌ Pack1 dir não encontrado em _out/"
             exit 1
           fi
-
+  
           python scripts/factory_agent.py \
             --blueprint _blueprint/build_blueprint.md \
             --pack0 "$PACK0_ZIP" \
             --pack1-dir "$PACK1_DIR" \
             --module "$MODULE" \
             --trace "${TRACE}-CODE"
-
+  
           echo "✅ Código gerado via Claude"
-
+  
       - name: Run Tests
         run: |
           PACK1_DIR="$(ls -d _out/pack1-* 2>/dev/null | head -1)"
@@ -209,12 +218,12 @@ jobs:
             echo "❌ Pack1 dir não encontrado"
             exit 1
           fi
-
+  
           cd "$PACK1_DIR"
           if [ -f "requirements.txt" ]; then pip install -r requirements.txt; fi
           if [ -f "package.json" ]; then npm install; fi
           PYTHONPATH=. python -m pytest tests/ -q --tb=short 2>&1 || true
-
+  
       - uses: actions/upload-artifact@v4
         with:
           name: pack1-${{ inputs.module_name }}

@@ -5,7 +5,10 @@ FACTORY AGENT — Gera código executável a partir do blueprint.
 Recebe o blueprint da Pré-Fábrica + Pack0 + Pack1 scaffold
 e usa Claude API para gerar código real nos arquivos do Pack1.
 
-Roda dentro de GitHub Actions.
+Correções:
+- Usa Structured Outputs (output_config.format com json_schema) => JSON sempre válido
+- Lê CLAUDE_MODEL e CLAUDE_MAX_TOKENS do env
+- Detecta truncamento (stop_reason == max_tokens) e salva raw
 """
 from __future__ import annotations
 
@@ -34,40 +37,19 @@ Sua função é gerar código executável de produção a partir de um blueprint
 7. Código em Python (FastAPI) ou TypeScript (Next.js/Express) conforme o blueprint indicar.
 8. Sem bibliotecas obscuras — preferir stdlib + libs mainstream.
 
-## Estrutura obrigatória de saída
-Retorne um JSON com a seguinte estrutura:
+## Estrutura obrigatória de saída (JSON)
 {
-  "files": [
-    {
-      "path": "caminho/relativo/arquivo.py",
-      "content": "conteúdo completo do arquivo"
-    }
-  ],
-  "dependencies": {
-    "python": ["fastapi", "uvicorn", ...],
-    "node": ["express", ...]
-  },
-  "docker": {
-    "dockerfile": "conteúdo do Dockerfile",
-    "compose": "conteúdo do docker-compose.yml"
-  },
-  "tests": [
-    {
-      "path": "tests/test_xxx.py",
-      "content": "conteúdo do teste"
-    }
-  ],
-  "runbooks": {
-    "how_to_run": "markdown",
-    "how_to_deploy": "markdown",
-    "how_to_rollback": "markdown"
-  }
+  "files": [{"path":"...","content":"..."}],
+  "dependencies": {"python":[...], "node":[...]},
+  "docker": {"dockerfile":"...", "compose":"..."},
+  "tests": [{"path":"...","content":"..."}],
+  "runbooks": {"how_to_run":"...", "how_to_deploy":"...", "how_to_rollback":"..."}
 }
 
-Responda APENAS com JSON válido, sem texto adicional ou markdown fences.
+Responda APENAS com JSON válido, sem texto adicional.
 """
 
-# JSON Schema para Structured Outputs (garante JSON válido)
+# JSON Schema para Structured Outputs (garante JSON parseável)
 OUTPUT_SCHEMA: Dict[str, Any] = {
     "type": "object",
     "properties": {
@@ -75,10 +57,7 @@ OUTPUT_SCHEMA: Dict[str, Any] = {
             "type": "array",
             "items": {
                 "type": "object",
-                "properties": {
-                    "path": {"type": "string"},
-                    "content": {"type": "string"},
-                },
+                "properties": {"path": {"type": "string"}, "content": {"type": "string"}},
                 "required": ["path", "content"],
                 "additionalProperties": False,
             },
@@ -93,20 +72,14 @@ OUTPUT_SCHEMA: Dict[str, Any] = {
         },
         "docker": {
             "type": "object",
-            "properties": {
-                "dockerfile": {"type": "string"},
-                "compose": {"type": "string"},
-            },
+            "properties": {"dockerfile": {"type": "string"}, "compose": {"type": "string"}},
             "additionalProperties": False,
         },
         "tests": {
             "type": "array",
             "items": {
                 "type": "object",
-                "properties": {
-                    "path": {"type": "string"},
-                    "content": {"type": "string"},
-                },
+                "properties": {"path": {"type": "string"}, "content": {"type": "string"}},
                 "required": ["path", "content"],
                 "additionalProperties": False,
             },
@@ -127,46 +100,15 @@ OUTPUT_SCHEMA: Dict[str, Any] = {
 
 
 def _safe_rel_path(rel: str) -> Path:
-    # impede path traversal (..), e paths absolutos
     rel_norm = Path(rel).as_posix().lstrip("/")
     if rel_norm.startswith("..") or "/../" in rel_norm:
         raise ValueError(f"Path inválido (..): {rel}")
     return Path(rel_norm)
 
 
-def _extract_plan_from_pack0(pack0_zip: Path) -> str:
-    plan_md = ""
-    with zipfile.ZipFile(pack0_zip, "r") as z:
-        # aceita "docs/PLAN.md" ou ".../docs/PLAN.md"
-        plan_candidates = [n for n in z.namelist() if n.endswith("docs/PLAN.md")]
-        if plan_candidates:
-            plan_md = z.read(plan_candidates[0]).decode("utf-8", errors="replace")
-    return plan_md
-
-
-def _load_ecosystem_fit(blueprint_path: Path) -> str:
-    # compat: nomes antigos e novos
-    candidates = [
-        blueprint_path.parent / "ecosystem_fit.json",
-        blueprint_path.parent / "ecosystem_fit_map.json",
-    ]
-    for p in candidates:
-        if p.exists():
-            eco = json.loads(p.read_text(encoding="utf-8"))
-            return f"""
-## Ecosystem Fit
-- Módulos para reusar: {', '.join(eco.get('reuse_candidates', []))}
-- Novo módulo necessário: {eco.get('new_module_needed', True)}
-- Event Bus Topics: {', '.join(eco.get('event_bus_topics', []))}
-- Integrações: {', '.join(eco.get('integrations', []))}
-""".strip()
-    return ""
-
-
-def _join_text_blocks(response) -> str:
-    # content pode ser lista de blocos; junta todos os textos
+def _join_text_blocks(resp) -> str:
     parts: List[str] = []
-    for b in getattr(response, "content", []) or []:
+    for b in getattr(resp, "content", []) or []:
         t = getattr(b, "text", None)
         if isinstance(t, str):
             parts.append(t)
@@ -189,19 +131,32 @@ def main():
 
     blueprint = blueprint_path.read_text(encoding="utf-8")
 
+    # Ler Pack0 PLAN.md
     plan_md = ""
     try:
-        plan_md = _extract_plan_from_pack0(pack0_path)
+        with zipfile.ZipFile(pack0_path, "r") as z:
+            plan_candidates = [n for n in z.namelist() if n.endswith("docs/PLAN.md")]
+            if plan_candidates:
+                plan_md = z.read(plan_candidates[0]).decode("utf-8", errors="replace")
     except Exception as e:
-        print(f"⚠️  Não consegui ler Pack0 PLAN.md: {e}")
+        print(f"⚠️  Não consegui ler Pack0: {e}")
 
-    eco_info = _load_ecosystem_fit(blueprint_path)
+    # Ler ecosystem_fit (compat nomes)
+    eco_info = ""
+    for p in [blueprint_path.parent / "ecosystem_fit.json", blueprint_path.parent / "ecosystem_fit_map.json"]:
+        if p.exists():
+            eco = json.loads(p.read_text(encoding="utf-8"))
+            eco_info = f"""
+## Ecosystem Fit
+- Módulos para reusar: {', '.join(eco.get('reuse_candidates', []))}
+- Novo módulo necessário: {eco.get('new_module_needed', True)}
+- Event Bus Topics: {', '.join(eco.get('event_bus_topics', []))}
+- Integrações: {', '.join(eco.get('integrations', []))}
+""".strip()
+            break
 
-    # Claude client (usa ANTHROPIC_API_KEY automaticamente)
-    client = anthropic.Anthropic()
-
-    model = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-20250514").strip()
-    max_tokens = int(os.getenv("CLAUDE_MAX_TOKENS", "24000"))
+    model = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6").strip()
+    max_tokens = int(os.getenv("CLAUDE_MAX_TOKENS", "40000"))
 
     user_message = f"""
 ## Módulo: {args.module}
@@ -223,7 +178,8 @@ Gere o código completo para este módulo. Código real, executável, com testes
     print(f"📋 Plan: {len(plan_md)} chars")
     print(f"🧠 Model: {model} | max_tokens={max_tokens}")
 
-    # Structured Outputs: output_config.format (com fallback p/ output_format)
+    client = anthropic.Anthropic()
+
     request_kwargs = dict(
         model=model,
         max_tokens=max_tokens,
@@ -231,27 +187,26 @@ Gere o código completo para este módulo. Código real, executável, com testes
         messages=[{"role": "user", "content": user_message}],
     )
 
+    # Structured Outputs: output_config.format
     try:
         response = client.messages.create(
             **request_kwargs,
             output_config={"format": {"type": "json_schema", "schema": OUTPUT_SCHEMA}},
         )
     except TypeError:
-        # compat com SDKs antigos (deprecado, mas ainda funciona)
+        # compat com SDK antigo (transição)
         response = client.messages.create(
             **request_kwargs,
             output_format={"type": "json_schema", "schema": OUTPUT_SCHEMA},
         )
 
-    # Se bater max_tokens, pode truncar JSON (quebra parse)
     stop_reason = getattr(response, "stop_reason", None)
-    if stop_reason == "max_tokens":
-        raw = _join_text_blocks(response)
-        (pack1_dir / "_raw_response.txt").write_text(raw, encoding="utf-8")
-        print("❌ Saída truncada por max_tokens. Aumente CLAUDE_MAX_TOKENS (ex: 40000).")
-        sys.exit(1)
-
     raw_text = _join_text_blocks(response)
+
+    if stop_reason == "max_tokens":
+        (pack1_dir / "_raw_response.txt").write_text(raw_text, encoding="utf-8")
+        print("❌ Saída truncada por max_tokens. Aumente CLAUDE_MAX_TOKENS (ex: 60000) ou reduza o escopo.")
+        sys.exit(1)
 
     try:
         result = json.loads(raw_text)
@@ -262,27 +217,18 @@ Gere o código completo para este módulo. Código real, executável, com testes
 
     files_written = 0
 
-    # files
     for file_info in result.get("files", []) or []:
-        relp = _safe_rel_path(file_info["path"])
-        fpath = (pack1_dir / relp).resolve()
-        if pack1_dir.resolve() not in fpath.parents and fpath != pack1_dir.resolve():
-            raise ValueError(f"Path escapou do pack1-dir: {file_info['path']}")
+        fpath = pack1_dir / _safe_rel_path(file_info["path"])
         fpath.parent.mkdir(parents=True, exist_ok=True)
         fpath.write_text(file_info["content"], encoding="utf-8")
         files_written += 1
 
-    # tests
     for test_info in result.get("tests", []) or []:
-        relp = _safe_rel_path(test_info["path"])
-        tpath = (pack1_dir / relp).resolve()
-        if pack1_dir.resolve() not in tpath.parents and tpath != pack1_dir.resolve():
-            raise ValueError(f"Path escapou do pack1-dir: {test_info['path']}")
+        tpath = pack1_dir / _safe_rel_path(test_info["path"])
         tpath.parent.mkdir(parents=True, exist_ok=True)
         tpath.write_text(test_info["content"], encoding="utf-8")
         files_written += 1
 
-    # docker
     docker = result.get("docker", {}) or {}
     if docker.get("dockerfile"):
         (pack1_dir / "Dockerfile").write_text(docker["dockerfile"], encoding="utf-8")
@@ -291,7 +237,6 @@ Gere o código completo para este módulo. Código real, executável, com testes
         (pack1_dir / "docker-compose.yml").write_text(docker["compose"], encoding="utf-8")
         files_written += 1
 
-    # dependencies
     deps = result.get("dependencies", {}) or {}
     if deps.get("python"):
         (pack1_dir / "requirements.txt").write_text("\n".join(deps["python"]) + "\n", encoding="utf-8")
@@ -301,7 +246,6 @@ Gere o código completo para este módulo. Código real, executável, com testes
         (pack1_dir / "package.json").write_text(json.dumps(pkg, indent=2), encoding="utf-8")
         files_written += 1
 
-    # runbooks
     runbooks = result.get("runbooks", {}) or {}
     if runbooks:
         rb_dir = pack1_dir / "runbooks"
@@ -323,10 +267,6 @@ Gere o código completo para este módulo. Código real, executável, com testes
     (pack1_dir / "_gen_meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
 
     print(f"✅ {files_written} arquivos gerados no Pack1")
-    it = meta["input_tokens"]
-    ot = meta["output_tokens"]
-    if it is not None or ot is not None:
-        print(f"   📊 Tokens: {it} in / {ot} out")
 
 
 if __name__ == "__main__":
